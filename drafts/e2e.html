@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Form block E2E (config JSON)</title>
+  </head>
+  <body>
+    <div id="wrap"></div>
+    <script type="module">
+      import decorate from '../blocks/form/form.js';
+
+      // Two forms on the page, each a model-based block with one formConfig cell.
+      const configs = [
+        {
+          title: 'Contact us',
+          submitLabel: 'Send message',
+          fields: [
+            { type: 'text', label: 'Full name', name: 'fullName', required: true },
+            { type: 'email', label: 'Email', name: 'email', required: true },
+            { type: 'select', label: 'Topic', name: 'topic', options: ['Sales', 'Support'] },
+            { type: 'textarea', label: 'Message', name: 'message' },
+          ],
+        },
+        {
+          title: 'Newsletter',
+          submitLabel: 'Subscribe',
+          fields: [
+            { type: 'email', label: 'Your email', name: 'email', required: true },
+            { type: 'checkbox', label: 'I agree', name: 'agree', required: true },
+          ],
+        },
+      ];
+
+      configs.forEach((cfg) => {
+        const block = document.createElement('div');
+        block.className = 'form block';
+        const row = document.createElement('div');
+        const cell = document.createElement('div');
+        cell.textContent = JSON.stringify(cfg);
+        row.append(cell);
+        block.append(row);
+        document.getElementById('wrap').append(block);
+        decorate(block);
+      });
+    </script>
+  </body>
+</html>

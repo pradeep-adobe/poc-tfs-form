@@ -15,6 +15,15 @@ let promiseChanges$ = Promise.resolve();
 async function applyChanges(event) {
   await promiseChanges$;
 
+  // Fast path: extension-authored formConfig patches re-render React in place.
+  try {
+    const { applyFormConfigPatch } = await import(`${window.hlx.codeBasePath}/blocks/form/form.js`);
+    const formApplied = await applyFormConfigPatch(event);
+    if (formApplied) return true;
+  } catch {
+    // form block not involved in this patch
+  }
+
   // redecorate default content and blocks on patches (in the properties rail)
   const { detail } = event;
 

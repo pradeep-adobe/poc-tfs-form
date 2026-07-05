@@ -1,165 +1,126 @@
-import { moveInstrumentation } from '../../scripts/scripts.js';
+import { loadScript } from '../../scripts/aem.js';
+import { TFS_FORM_APP } from './form-config.js';
 
-function cellText(cell) {
-  return cell ? cell.textContent.trim() : '';
-}
-
-function slugify(value, fallback) {
-  const slug = String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return slug || fallback;
-}
-
-function parseOptions(raw) {
-  return String(raw || '')
-    .split(/[\n,]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function buildControl(field) {
-  const {
-    type, name, placeholder, required, options,
-  } = field;
-
-  if (type === 'textarea') {
-    const el = document.createElement('textarea');
-    el.name = name;
-    el.rows = 4;
-    if (placeholder) el.placeholder = placeholder;
-    if (required) el.required = true;
-    return el;
-  }
-
-  if (type === 'select') {
-    const el = document.createElement('select');
-    el.name = name;
-    if (required) el.required = true;
-    const empty = document.createElement('option');
-    empty.value = '';
-    empty.textContent = placeholder || 'Select…';
-    el.append(empty);
-    options.forEach((opt) => {
-      const option = document.createElement('option');
-      option.value = opt;
-      option.textContent = opt;
-      el.append(option);
-    });
-    return el;
-  }
-
-  if (type === 'radio') {
-    const group = document.createElement('div');
-    group.className = 'form-radio-group';
-    options.forEach((opt, index) => {
-      const wrapper = document.createElement('label');
-      wrapper.className = 'form-radio';
-      const input = document.createElement('input');
-      input.type = 'radio';
-      input.name = name;
-      input.value = opt;
-      if (required && index === 0) input.required = true;
-      const span = document.createElement('span');
-      span.textContent = opt;
-      wrapper.append(input, span);
-      group.append(wrapper);
-    });
-    return group;
-  }
-
-  if (type === 'checkbox') {
-    const el = document.createElement('input');
-    el.type = 'checkbox';
-    el.name = name;
-    if (required) el.required = true;
-    return el;
-  }
-
-  const el = document.createElement('input');
-  el.type = type;
-  el.name = name;
-  if (placeholder) el.placeholder = placeholder;
-  if (required) el.required = true;
-  return el;
-}
-
-export default function decorate(block) {
-  const form = document.createElement('form');
-  form.className = 'form-el';
-  form.noValidate = false;
-
-  const status = document.createElement('p');
-  status.className = 'form-status';
-  status.hidden = true;
-
-  [...block.children].forEach((row) => {
-    const cells = [...row.children];
-    const type = (cellText(cells[0]) || 'text').toLowerCase();
-    const label = cellText(cells[1]);
-    const required = /^(true|yes|on|x|1|checked)$/i.test(cellText(cells[2]));
-    const options = parseOptions(cellText(cells[3]));
-    const name = slugify(label, `field-${Math.random().toString(36).slice(2, 8)}`);
-    const placeholder = label;
-
-    const field = {
-      type, label, name, placeholder, required, options,
+/**
+ * Reads formConfig from the UE-instrumented cell (must stay in the DOM).
+ * @param {Element} block
+ * @returns {{title: string, submitLabel: string, fields: Array}}
+ */
+export function readConfig(block) {
+  const cell = block.querySelector('[data-aue-prop="formConfig"]')
+    || block.querySelector(':scope > div > div');
+  const raw = (cell?.textContent || '').trim();
+  if (!raw) return { title: '', submitLabel: 'Submit', fields: [] };
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      title: parsed.title || '',
+      submitLabel: parsed.submitLabel || 'Submit',
+      fields: Array.isArray(parsed.fields) ? parsed.fields : [],
     };
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn('[form] formConfig is not valid JSON', error);
+    return { title: '', submitLabel: 'Submit', fields: [] };
+  }
+}
 
-    const wrapper = document.createElement('div');
-    wrapper.className = 'form-field';
-    moveInstrumentation(row, wrapper);
+function findConfigCell(block) {
+  return block.querySelector('[data-aue-prop="formConfig"]')
+    || block.querySelector(':scope > div > div');
+}
 
-    if (type === 'submit') {
-      const button = document.createElement('button');
-      button.type = 'submit';
-      button.className = 'form-submit';
-      button.textContent = label || 'Submit';
-      wrapper.append(button);
-      form.append(wrapper);
-      return;
-    }
+let appPromise;
+function loadFormApp() {
+  if (!appPromise) {
+    appPromise = loadScript(TFS_FORM_APP.scriptUrl).then(() => {
+      if (!window.TFSForm?.render) {
+        throw new Error('TFSForm global not available after loading bundle');
+      }
+    });
+  }
+  return appPromise;
+}
 
-    const control = buildControl(field);
+/**
+ * Re-render the React microfrontend for a form block (used during UE live preview).
+ * @param {Element} block
+ * @param {object|string} specOrJson
+ */
+export async function renderFormBlock(block, specOrJson) {
+  const spec = typeof specOrJson === 'string'
+    ? JSON.parse(specOrJson)
+    : specOrJson;
 
-    if (type === 'checkbox') {
-      const inlineLabel = document.createElement('label');
-      inlineLabel.className = 'form-checkbox';
-      const span = document.createElement('span');
-      span.textContent = label + (required ? ' *' : '');
-      inlineLabel.append(control, span);
-      wrapper.append(inlineLabel);
-    } else {
-      const fieldLabel = document.createElement('label');
-      fieldLabel.className = 'form-field-label';
-      fieldLabel.textContent = label + (required ? ' *' : '');
-      wrapper.append(fieldLabel, control);
-    }
-
-    form.append(wrapper);
-  });
-
-  // Ensure there is always a submit control.
-  if (!form.querySelector('button[type="submit"]')) {
-    const submit = document.createElement('button');
-    submit.type = 'submit';
-    submit.className = 'form-submit';
-    submit.textContent = 'Submit';
-    form.append(submit);
+  let mount = block.querySelector(':scope > .tfs-form-app');
+  if (!mount) {
+    mount = document.createElement('div');
+    mount.className = 'tfs-form-app';
+    block.appendChild(mount);
   }
 
-  form.append(status);
+  await loadFormApp();
+  window.TFSForm.render(mount, spec);
+}
 
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const data = Object.fromEntries(new FormData(form).entries());
-    status.hidden = false;
-    status.textContent = 'Thank you! Your response was recorded.';
+/**
+ * Handle aue:content-patch events for formConfig updates from the extension.
+ * @param {CustomEvent} event
+ * @returns {Promise<boolean>}
+ */
+export async function applyFormConfigPatch(event) {
+  const { detail } = event;
+  const patches = detail?.request?.patch || detail?.request?.operations || [];
+  const formPatch = patches.find((p) => /formConfig/i.test(p.path || ''));
+  if (!formPatch) return false;
+
+  const value = typeof formPatch.value === 'string'
+    ? formPatch.value
+    : JSON.stringify(formPatch.value);
+
+  const resource = detail?.request?.target?.resource
+    || detail?.request?.target?.editable?.resource;
+  if (!resource) return false;
+
+  const block = document.querySelector(`.form.block[data-aue-resource="${resource}"]`)
+    || document.querySelector(`[data-aue-resource="${resource}"]`)?.closest('.form.block');
+  if (!block) return false;
+
+  const cell = findConfigCell(block);
+  if (cell) cell.textContent = value;
+
+  try {
+    await renderFormBlock(block, value);
+    return true;
+  } catch (error) {
     // eslint-disable-next-line no-console
-    console.log('Form submission', data);
-  });
+    console.error('[form] live preview update failed', error);
+    return false;
+  }
+}
 
-  block.replaceChildren(form);
+/**
+ * loads and decorates the form block by mounting the TFS React microfrontend
+ * @param {Element} block The block element
+ */
+export default async function decorate(block) {
+  const spec = readConfig(block);
+
+  let mount = block.querySelector(':scope > .tfs-form-app');
+  if (!mount) {
+    mount = document.createElement('div');
+    mount.className = 'tfs-form-app';
+    // Keep the UE-instrumented formConfig cell — only append the React mount.
+    block.appendChild(mount);
+  }
+
+  try {
+    await renderFormBlock(block, spec);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('[form] failed to load TFS form microfrontend', error);
+    mount.innerHTML = `<p class="tfs-form-error">Unable to load the form application from
+      <code>${TFS_FORM_APP.scriptUrl}</code>. Start the tfs-form-app dev server
+      (<code>npm run dev</code>) and trust its certificate.</p>`;
+  }
 }

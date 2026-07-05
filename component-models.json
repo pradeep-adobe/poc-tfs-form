@@ -180,74 +180,15 @@
     ]
   },
   {
-    "id": "form-field",
+    "id": "form",
     "fields": [
       {
-        "component": "select",
-        "name": "type",
-        "label": "Field Type",
+        "component": "text",
+        "name": "formConfig",
+        "label": "Form configuration",
+        "description": "JSON authored by the Form Builder extension. Edit via the extension rail.",
         "valueType": "string",
-        "value": "text",
-        "options": [
-          {
-            "name": "Text",
-            "value": "text"
-          },
-          {
-            "name": "Email",
-            "value": "email"
-          },
-          {
-            "name": "Number",
-            "value": "number"
-          },
-          {
-            "name": "Phone",
-            "value": "tel"
-          },
-          {
-            "name": "Date",
-            "value": "date"
-          },
-          {
-            "name": "Textarea",
-            "value": "textarea"
-          },
-          {
-            "name": "Dropdown",
-            "value": "select"
-          },
-          {
-            "name": "Radio group",
-            "value": "radio"
-          },
-          {
-            "name": "Checkbox",
-            "value": "checkbox"
-          },
-          {
-            "name": "Submit button",
-            "value": "submit"
-          }
-        ]
-      },
-      {
-        "component": "text",
-        "name": "label",
-        "label": "Label / Placeholder",
-        "valueType": "string"
-      },
-      {
-        "component": "boolean",
-        "name": "required",
-        "label": "Required",
-        "valueType": "boolean"
-      },
-      {
-        "component": "text",
-        "name": "options",
-        "label": "Options (one per line, for Dropdown/Radio)",
-        "valueType": "string"
+        "hidden": true
       }
     ]
   },

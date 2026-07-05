@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+  <head>
+    <title>TFS Form Demo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body>
+    <header></header>
+    <main>
+      <div>
+        <h1>TFS Form Demo</h1>
+        <p>A page can contain multiple forms. Each Form block stores its config
+          as JSON and is rendered by the tfs-form-app React microfrontend.</p>
+
+        <div class="form">
+          <div>
+            <div>{"title":"Contact us","submitLabel":"Send message","fields":[{"type":"text","label":"Full name","name":"fullName","required":true},{"type":"email","label":"Email","name":"email","required":true},{"type":"select","label":"Topic","name":"topic","options":["Sales","Support","Other"]},{"type":"textarea","label":"Message","name":"message"},{"type":"submit","label":"Send message"}]}</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2>Newsletter signup</h2>
+        <div class="form">
+          <div>
+            <div>{"title":"Newsletter","submitLabel":"Subscribe","fields":[{"type":"email","label":"Your email","name":"email","required":true},{"type":"checkbox","label":"I agree to receive updates","name":"agree","required":true},{"type":"submit","label":"Subscribe"}]}</div>
+          </div>
+        </div>
+      </div>
+    </main>
+    <footer></footer>
+  </body>
+</html>
