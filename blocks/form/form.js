@@ -64,6 +64,19 @@ function findFormBlock(resource) {
   return null;
 }
 
+export function isFormConfigEvent(detail) {
+  if (!detail) return false;
+  const patches = detail?.request?.patch
+    || detail?.request?.operations
+    || detail?.patch
+    || [];
+  if (patches.some((p) => /formConfig/i.test(p.path || ''))) return true;
+  const prop = detail?.request?.target?.prop
+    || detail?.request?.prop
+    || detail?.target?.prop;
+  return /formConfig/i.test(prop || '');
+}
+
 function extractFormConfigValue(detail) {
   const patches = detail?.request?.patch
     || detail?.request?.operations
@@ -166,9 +179,14 @@ function attachFormPatchListener() {
   if (patchListenerAttached) return;
   patchListenerAttached = true;
 
-  const handler = async (event) => {
-    const applied = await applyFormConfigPatch(event);
-    if (applied) event.stopPropagation();
+  const handler = (event) => {
+    if (!isFormConfigEvent(event.detail)) return;
+    // Stop synchronously so editor-support does not fall through to location.reload().
+    event.stopImmediatePropagation();
+    applyFormConfigPatch(event).catch((error) => {
+      // eslint-disable-next-line no-console
+      console.error('[form] live preview handler failed', error);
+    });
   };
 
   document.addEventListener('aue:content-patch', handler, true);

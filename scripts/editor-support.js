@@ -118,7 +118,17 @@ function attachEventListeners(main) {
     event.stopPropagation();
     promiseChanges$ = applyChanges(event);
     const applied = await promiseChanges$;
-    if (!applied) window.location.reload();
+    if (applied) return;
+
+    // Extension formConfig patches are handled in form.js; never reload for those.
+    try {
+      const { isFormConfigEvent } = await import(`${window.hlx.codeBasePath}/blocks/form/form.js`);
+      if (isFormConfigEvent(event.detail)) return;
+    } catch {
+      // not a form patch
+    }
+
+    window.location.reload();
   }));
 }
 
