@@ -16,13 +16,13 @@ function findConfigCell(block) {
 }
 
 /**
- * Reads formConfig from the UE-instrumented cell (must stay in the DOM).
+ * Reads formConfig from the persisted block cell in the document.
  * @param {Element} block
  * @returns {{title: string, submitLabel: string, fields: Array}}
  */
 export function readConfig(block) {
   const cell = findConfigCell(block);
-  const raw = (cell?.textContent || block.dataset.tfsFormConfig || '').trim();
+  const raw = (cell?.textContent || '').trim();
   if (!raw) return { title: '', submitLabel: 'Submit', fields: [] };
   try {
     return normalizeSpec(raw);
@@ -31,22 +31,6 @@ export function readConfig(block) {
     console.warn('[form] formConfig is not valid JSON', error);
     return { title: '', submitLabel: 'Submit', fields: [] };
   }
-}
-
-function ensureConfigCell(block) {
-  let cell = block.querySelector('[data-aue-prop="formConfig"]');
-  if (cell) return cell;
-
-  let row = block.querySelector(':scope > div');
-  if (!row) {
-    row = document.createElement('div');
-    block.prepend(row);
-  }
-  cell = document.createElement('div');
-  cell.setAttribute('data-aue-prop', 'formConfig');
-  cell.hidden = true;
-  row.prepend(cell);
-  return cell;
 }
 
 function findFormBlock(resource) {
@@ -99,13 +83,6 @@ function extractFormConfigValue(detail) {
     }
   }
 
-  const content = detail?.response?.updates?.[0]?.content;
-  if (content) {
-    const doc = new DOMParser().parseFromString(content, 'text/html');
-    const cell = doc.querySelector('[data-aue-prop="formConfig"]');
-    if (cell?.textContent?.trim()) return cell.textContent.trim();
-  }
-
   return null;
 }
 
@@ -122,7 +99,8 @@ function loadFormApp() {
 }
 
 /**
- * Re-render the React microfrontend for a form block (used during UE live preview).
+ * Re-render the React microfrontend for a form block.
+ * Only updates an existing config cell — never creates synthetic DOM that would not persist.
  * @param {Element} block
  * @param {object|string} specOrJson
  */
@@ -136,17 +114,17 @@ export async function renderFormBlock(block, specOrJson) {
     block.appendChild(mount);
   }
 
-  const cell = ensureConfigCell(block);
-  const json = JSON.stringify(spec);
-  cell.textContent = json;
-  block.dataset.tfsFormConfig = json;
+  const cell = findConfigCell(block);
+  if (cell) {
+    cell.textContent = JSON.stringify(spec);
+  }
 
   await loadFormApp();
   window.TFSForm.render(mount, spec);
 }
 
 /**
- * Handle aue:content-patch / aue:content-update from the extension or properties rail.
+ * Live-preview fallback when the patch event has no server HTML yet.
  * @param {CustomEvent} event
  * @returns {Promise<boolean>}
  */
@@ -174,37 +152,11 @@ export async function applyFormConfigPatch(event) {
   }
 }
 
-let patchListenerAttached = false;
-function attachFormPatchListener() {
-  if (patchListenerAttached) return;
-  patchListenerAttached = true;
-
-  const handler = (event) => {
-    if (!isFormConfigEvent(event.detail)) return;
-    // Stop synchronously so editor-support does not fall through to location.reload().
-    event.stopImmediatePropagation();
-    applyFormConfigPatch(event).catch((error) => {
-      // eslint-disable-next-line no-console
-      console.error('[form] live preview handler failed', error);
-    });
-  };
-
-  document.addEventListener('aue:content-patch', handler, true);
-  document.addEventListener('aue:content-update', handler, true);
-}
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', attachFormPatchListener);
-} else {
-  attachFormPatchListener();
-}
-
 /**
  * loads and decorates the form block by mounting the TFS React microfrontend
  * @param {Element} block The block element
  */
 export default async function decorate(block) {
-  attachFormPatchListener();
   const spec = readConfig(block);
 
   let mount = block.querySelector(':scope > .tfs-form-app');
