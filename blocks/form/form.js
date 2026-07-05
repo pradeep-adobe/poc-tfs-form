@@ -1,23 +1,31 @@
 import { loadScript } from '../../scripts/aem.js';
 import { TFS_FORM_APP } from './form-config.js';
 
+function normalizeSpec(specOrJson) {
+  const parsed = typeof specOrJson === 'string' ? JSON.parse(specOrJson) : specOrJson;
+  return {
+    title: parsed?.title || '',
+    submitLabel: parsed?.submitLabel || 'Submit',
+    fields: Array.isArray(parsed?.fields) ? parsed.fields : [],
+  };
+}
+
+function findConfigCell(block) {
+  return block.querySelector('[data-aue-prop="formConfig"]')
+    || block.querySelector(':scope > div > div');
+}
+
 /**
  * Reads formConfig from the UE-instrumented cell (must stay in the DOM).
  * @param {Element} block
  * @returns {{title: string, submitLabel: string, fields: Array}}
  */
 export function readConfig(block) {
-  const cell = block.querySelector('[data-aue-prop="formConfig"]')
-    || block.querySelector(':scope > div > div');
-  const raw = (cell?.textContent || '').trim();
+  const cell = findConfigCell(block);
+  const raw = (cell?.textContent || block.dataset.tfsFormConfig || '').trim();
   if (!raw) return { title: '', submitLabel: 'Submit', fields: [] };
   try {
-    const parsed = JSON.parse(raw);
-    return {
-      title: parsed.title || '',
-      submitLabel: parsed.submitLabel || 'Submit',
-      fields: Array.isArray(parsed.fields) ? parsed.fields : [],
-    };
+    return normalizeSpec(raw);
   } catch (error) {
     // eslint-disable-next-line no-console
     console.warn('[form] formConfig is not valid JSON', error);
@@ -25,9 +33,67 @@ export function readConfig(block) {
   }
 }
 
-function findConfigCell(block) {
-  return block.querySelector('[data-aue-prop="formConfig"]')
-    || block.querySelector(':scope > div > div');
+function ensureConfigCell(block) {
+  let cell = block.querySelector('[data-aue-prop="formConfig"]');
+  if (cell) return cell;
+
+  let row = block.querySelector(':scope > div');
+  if (!row) {
+    row = document.createElement('div');
+    block.prepend(row);
+  }
+  cell = document.createElement('div');
+  cell.setAttribute('data-aue-prop', 'formConfig');
+  cell.hidden = true;
+  row.prepend(cell);
+  return cell;
+}
+
+function findFormBlock(resource) {
+  if (resource) {
+    const escaped = CSS.escape(resource);
+    let block = document.querySelector(`.form.block[data-aue-resource="${escaped}"]`)
+      || document.querySelector(`div.form[data-aue-resource="${escaped}"]`);
+    if (block) return block;
+    block = document.querySelector(`[data-aue-resource="${escaped}"]`)?.closest('.form.block, div.form');
+    if (block) return block;
+  }
+
+  const all = [...document.querySelectorAll('.form.block, div.form.block, div.form')];
+  if (all.length === 1) return all[0];
+  return null;
+}
+
+function extractFormConfigValue(detail) {
+  const patches = detail?.request?.patch
+    || detail?.request?.operations
+    || detail?.patch
+    || [];
+  const formPatch = patches.find((p) => /formConfig/i.test(p.path || ''));
+  if (formPatch?.value != null) {
+    return typeof formPatch.value === 'string'
+      ? formPatch.value
+      : JSON.stringify(formPatch.value);
+  }
+
+  const prop = detail?.request?.target?.prop
+    || detail?.request?.prop
+    || detail?.target?.prop;
+  if (/formConfig/i.test(prop || '')) {
+    const val = detail?.request?.value ?? detail?.value;
+    if (val != null) {
+      return typeof val === 'string' ? val : JSON.stringify(val);
+    }
+  }
+
+  const content = detail?.response?.updates?.[0]?.content;
+  if (content) {
+    const doc = new DOMParser().parseFromString(content, 'text/html');
+    const cell = doc.querySelector('[data-aue-prop="formConfig"]');
+    if (cell?.textContent?.trim()) return cell.textContent.trim();
+  }
+
+  return null;
 }
 
 let appPromise;
@@ -48,9 +114,7 @@ function loadFormApp() {
  * @param {object|string} specOrJson
  */
 export async function renderFormBlock(block, specOrJson) {
-  const spec = typeof specOrJson === 'string'
-    ? JSON.parse(specOrJson)
-    : specOrJson;
+  const spec = normalizeSpec(specOrJson);
 
   let mount = block.querySelector(':scope > .tfs-form-app');
   if (!mount) {
@@ -59,35 +123,33 @@ export async function renderFormBlock(block, specOrJson) {
     block.appendChild(mount);
   }
 
+  const cell = ensureConfigCell(block);
+  const json = JSON.stringify(spec);
+  cell.textContent = json;
+  block.dataset.tfsFormConfig = json;
+
   await loadFormApp();
   window.TFSForm.render(mount, spec);
 }
 
 /**
- * Handle aue:content-patch events for formConfig updates from the extension.
+ * Handle aue:content-patch / aue:content-update from the extension or properties rail.
  * @param {CustomEvent} event
  * @returns {Promise<boolean>}
  */
 export async function applyFormConfigPatch(event) {
   const { detail } = event;
-  const patches = detail?.request?.patch || detail?.request?.operations || [];
-  const formPatch = patches.find((p) => /formConfig/i.test(p.path || ''));
-  if (!formPatch) return false;
+  if (!detail) return false;
 
-  const value = typeof formPatch.value === 'string'
-    ? formPatch.value
-    : JSON.stringify(formPatch.value);
+  const value = extractFormConfigValue(detail);
+  if (!value) return false;
 
   const resource = detail?.request?.target?.resource
-    || detail?.request?.target?.editable?.resource;
-  if (!resource) return false;
+    || detail?.request?.target?.editable?.resource
+    || detail?.response?.updates?.[0]?.resource;
 
-  const block = document.querySelector(`.form.block[data-aue-resource="${resource}"]`)
-    || document.querySelector(`[data-aue-resource="${resource}"]`)?.closest('.form.block');
+  const block = findFormBlock(resource);
   if (!block) return false;
-
-  const cell = findConfigCell(block);
-  if (cell) cell.textContent = value;
 
   try {
     await renderFormBlock(block, value);
@@ -99,18 +161,38 @@ export async function applyFormConfigPatch(event) {
   }
 }
 
+let patchListenerAttached = false;
+function attachFormPatchListener() {
+  if (patchListenerAttached) return;
+  patchListenerAttached = true;
+
+  const handler = async (event) => {
+    const applied = await applyFormConfigPatch(event);
+    if (applied) event.stopPropagation();
+  };
+
+  document.addEventListener('aue:content-patch', handler, true);
+  document.addEventListener('aue:content-update', handler, true);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', attachFormPatchListener);
+} else {
+  attachFormPatchListener();
+}
+
 /**
  * loads and decorates the form block by mounting the TFS React microfrontend
  * @param {Element} block The block element
  */
 export default async function decorate(block) {
+  attachFormPatchListener();
   const spec = readConfig(block);
 
   let mount = block.querySelector(':scope > .tfs-form-app');
   if (!mount) {
     mount = document.createElement('div');
     mount.className = 'tfs-form-app';
-    // Keep the UE-instrumented formConfig cell — only append the React mount.
     block.appendChild(mount);
   }
 

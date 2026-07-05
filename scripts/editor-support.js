@@ -18,8 +18,7 @@ async function applyChanges(event) {
   // Fast path: extension-authored formConfig patches re-render React in place.
   try {
     const { applyFormConfigPatch } = await import(`${window.hlx.codeBasePath}/blocks/form/form.js`);
-    const formApplied = await applyFormConfigPatch(event);
-    if (formApplied) return true;
+    if (await applyFormConfigPatch(event)) return true;
   } catch {
     // form block not involved in this patch
   }
@@ -29,10 +28,11 @@ async function applyChanges(event) {
 
   const resource = detail?.request?.target?.resource // update, patch components
     || detail?.request?.target?.container?.resource // update, patch, add to sections
-    || detail?.request?.to?.container?.resource; // move in sections
+    || detail?.request?.to?.container?.resource // move in sections
+    || detail?.response?.updates?.[0]?.resource;
   if (!resource) return false;
   const updates = detail?.response?.updates;
-  if (!updates.length) return false;
+  if (!updates?.length) return false;
   const { content } = updates[0];
   if (!content) return false;
 
